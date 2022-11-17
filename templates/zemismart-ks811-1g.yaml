@@ -1,1 +1,188 @@
+substitutions:
+  hostname: 'zemismart-ks811-1g'
+  Prefix: "Zemismart KS811 1G "
+  SSIDWifi: !secret SSIDWifi
+  PasswordWifi: !secret Password_Wifi
+  PasswordAP: !secret PasswordAP
+  EndConfig: ${hostname}.local # or IP
+  WifiHidden: 'False'
+  WifiFastConnect: 'False'
+  PasswordAPI: !secret PasswordAPI
+  PasswordOTA: !secret PasswordOTA
 
+esp8266:
+  board: esp01_1m
+
+esphome:
+  name: ${hostname}
+  name_add_mac_suffix: true
+  project:
+    name: "dougiteixeira.zemismart-ks811-1g"
+    version: "1.0.0"
+  comment: Switch Zemismart KS811 1 gang
+
+wifi:
+  networks:
+  - ssid: ${SSIDWifi}
+    password: ${PasswordWifi}
+    hidden: ${WifiHidden}
+  fast_connect: ${WifiFastConnect}
+    
+  use_address: ${EndConfig}
+  
+  ap:
+    ssid: WIFI_${hostname}
+    password: ${PasswordAP}
+
+captive_portal:
+
+api:
+  password: ${PasswordAPI}
+
+ota:
+  password: ${PasswordAPI}
+
+logger:
+  baud_rate: 0
+
+# mqtt:
+#   broker: mqtt.mydomain.com
+#   port: 1883
+#   username: usermqtt
+#   password: passwordmqtt
+
+################################################################################
+#                                      BUTTON                                  #
+################################################################################
+button:
+  - platform: restart
+    id: restart_button
+    name: ${Prefix} Reiniciar
+    icon: mdi:restart
+
+################################################################################
+#                                    TEXT SENSOR                               #
+################################################################################
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      id: IP
+      name: ${Prefix} Endereço IP
+      icon: mdi:ip-network
+    ssid:
+      id: SSID
+      name: ${Prefix} Rede Wifi
+      icon: mdi:wifi
+
+  - platform: version
+    id: versao
+    name: ${Prefix} Versão
+    icon: mdi:information
+
+  - platform: template
+    name: ${Prefix} Uptime
+    id: uptime_human
+    icon: mdi:clock-start
+    entity_category: diagnostic
+
+################################################################################
+#                                  BINARY SENSOR                               #
+################################################################################
+binary_sensor:
+  - platform: status
+    id: status_conexao
+    name: ${Prefix} Status
+    device_class: connectivity
+
+  - platform: gpio
+    pin:
+      number: GPIO0
+      inverted: True
+      mode: INPUT_PULLUP
+    id: button1
+    on_press:
+      then:
+        - switch.toggle: relay1
+    # on_click:
+    #   min_length: 50ms
+    #   max_length: 350ms
+    #   then:
+    #     - switch.toggle: relay1
+    # on_double_click:
+    #   min_length: 50ms
+    #   max_length: 350ms
+    #   then:
+    #     - light.toggle: relay1
+    #     - delay: 2s
+    #     - light.toggle: relay1
+
+  - platform: template
+    id: binary_sensor_leds
+    internal: true
+
+################################################################################
+#                                     SWITCH                                   #
+################################################################################
+switch:
+  - platform: gpio
+    pin: GPIO12
+    id: relay1
+    restore_mode: ALWAYS_OFF
+
+  - platform: gpio
+    pin: GPIO13
+    id: led1
+    restore_mode: ALWAYS_OFF
+
+  - platform: template
+    id: leds_on
+    name: Leds
+    icon: mdi:led-on
+    restore_state: yes
+    lambda: return id(binary_sensor_leds).state;
+    entity_category: config
+    turn_off_action:
+      - lambda: id(binary_sensor_leds).publish_state(false);
+      - switch.turn_off: led1      
+    turn_on_action:
+      - lambda: id(binary_sensor_leds).publish_state(true);
+      - if:
+          condition:
+            - switch.is_on: relay1
+          then:
+            - switch.turn_on: led1
+
+################################################################################
+#                                      SENSOR                                  #
+################################################################################
+sensor:
+  - platform: uptime
+    id: uptime_sensor
+    internal: true
+    update_interval: 1s
+    on_raw_value:
+      then:
+        - text_sensor.template.publish:
+            id: uptime_human
+            state: !lambda |-
+              int seconds = round(id(uptime_sensor).raw_state);
+              int days = seconds / (24 * 3600);
+              seconds = seconds % (24 * 3600);
+              int hours = seconds / 3600;
+              seconds = seconds % 3600;
+              int minutes = seconds /  60;
+              seconds = seconds % 60;
+              return (
+                (days ? to_string(days) + "d " : "") +
+                (hours ? to_string(hours) + "h " : "") +
+                (minutes ? to_string(minutes) + "m " : "") +
+                (to_string(seconds) + "s")
+              ).c_str();
+    disabled_by_default: true
+  
+  - platform: wifi_signal
+    id: wifi_sinal
+    name: ${Prefix} Intensidade Wifi
+    icon: mdi:signal
+    update_interval: 10s
+    disabled_by_default: true
